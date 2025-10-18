@@ -1,7 +1,8 @@
 import { sql } from '@vercel/postgres';
 import { drizzle } from 'drizzle-orm/vercel-postgres';
-import { pgTable, varchar, integer, timestamp, text } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, integer, timestamp, text, jsonb, boolean } from 'drizzle-orm/pg-core';
 import { eq, desc } from 'drizzle-orm';
+import type { ParsedDocument } from '@/types/document';
 
 // Schema
 export const conversions = pgTable('conversions', {
@@ -13,15 +14,29 @@ export const conversions = pgTable('conversions', {
   outputUrl: text('output_url'),
   method: varchar('method', { length: 20 }),
   tokens: integer('tokens'),
+  hasStructuredData: boolean('has_structured_data').default(false),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   completedAt: timestamp('completed_at'),
 });
 
+export const documentData = pgTable('document_data', {
+  id: varchar('id', { length: 21 }).primaryKey(),
+  conversionId: varchar('conversion_id', { length: 21 })
+    .notNull()
+    .references(() => conversions.id, { onDelete: 'cascade' }),
+  data: jsonb('data').$type<ParsedDocument>().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 export type Conversion = typeof conversions.$inferSelect;
 export type NewConversion = typeof conversions.$inferInsert;
+export type DocumentData = typeof documentData.$inferSelect;
+export type NewDocumentData = typeof documentData.$inferInsert;
 
 // 로컬 개발용 메모리 데이터베이스
 const localDb = new Map<string, Conversion>();
+const localDocumentDb = new Map<string, DocumentData>();
 const isLocal = !process.env.POSTGRES_URL;
 
 // Database client (프로덕션용)
@@ -130,4 +145,79 @@ export async function failConversion(id: string): Promise<Conversion> {
     status: 'failed',
     completedAt: new Date(),
   });
+}
+
+/**
+ * 구조화된 문서 데이터 저장
+ */
+export async function saveDocumentData(data: NewDocumentData): Promise<DocumentData> {
+  if (isLocal) {
+    const doc: DocumentData = {
+      ...data,
+      createdAt: data.createdAt || new Date(),
+      updatedAt: data.updatedAt || new Date(),
+    };
+    localDocumentDb.set(doc.id, doc);
+    console.log('[Local DB] Saved document data:', doc.id);
+    return doc;
+  }
+
+  const [doc] = await db!.insert(documentData).values(data).returning();
+  return doc;
+}
+
+/**
+ * 구조화된 문서 데이터 조회 (conversion ID로)
+ */
+export async function getDocumentDataByConversionId(
+  conversionId: string
+): Promise<DocumentData | null> {
+  if (isLocal) {
+    const docs = Array.from(localDocumentDb.values());
+    return docs.find((doc) => doc.conversionId === conversionId) || null;
+  }
+
+  const [doc] = await db!
+    .select()
+    .from(documentData)
+    .where(eq(documentData.conversionId, conversionId));
+  return doc || null;
+}
+
+/**
+ * 구조화된 문서 데이터 조회 (document ID로)
+ */
+export async function getDocumentData(id: string): Promise<DocumentData | null> {
+  if (isLocal) {
+    return localDocumentDb.get(id) || null;
+  }
+
+  const [doc] = await db!.select().from(documentData).where(eq(documentData.id, id));
+  return doc || null;
+}
+
+/**
+ * 구조화된 문서 데이터 업데이트
+ */
+export async function updateDocumentData(
+  id: string,
+  data: Partial<Pick<DocumentData, 'data'>>
+): Promise<DocumentData> {
+  if (isLocal) {
+    const existing = localDocumentDb.get(id);
+    if (!existing) {
+      throw new Error('Document data not found');
+    }
+    const updated = { ...existing, ...data, updatedAt: new Date() };
+    localDocumentDb.set(id, updated);
+    console.log('[Local DB] Updated document data:', id);
+    return updated;
+  }
+
+  const [doc] = await db!
+    .update(documentData)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(documentData.id, id))
+    .returning();
+  return doc;
 }

@@ -1,13 +1,21 @@
 /**
  * Google Gemini API 클라이언트
- * PDF를 직접 읽고 구조화된 HTML로 변환
+ * PDF를 직접 읽고 구조화된 JSON 또는 HTML로 변환
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { ParsedDocument } from '@/types/document';
+import { safeParseParsedDocument } from '@/schemas/document';
 
 export interface GeminiConversionResult {
   html: string;
   method: 'gemini-pdf';
+  tokens?: number;
+}
+
+export interface GeminiJsonConversionResult {
+  data: ParsedDocument;
+  method: 'gemini-pdf-json';
   tokens?: number;
 }
 
@@ -141,6 +149,239 @@ export async function convertPDFToHTMLWithGemini(
     console.error('Gemini API 오류:', error);
     throw new Error(
       `Gemini PDF 변환 중 오류가 발생했습니다: ${
+        error instanceof Error ? error.message : '알 수 없는 오류'
+      }`
+    );
+  }
+}
+
+/**
+ * Gemini JSON 모드용 스키마 정의
+ */
+const GEMINI_RESPONSE_SCHEMA = {
+  type: SchemaType.OBJECT,
+  properties: {
+    header: {
+      type: SchemaType.OBJECT,
+      properties: {
+        title: { type: SchemaType.STRING, description: '문서 제목' },
+        date: { type: SchemaType.STRING, description: '문서 날짜', nullable: true },
+        subtitle: { type: SchemaType.STRING, description: '문서 부제목', nullable: true },
+      },
+      required: ['title'],
+    },
+    summary: {
+      type: SchemaType.ARRAY,
+      description: '요지 섹션 (3단계 계층 구조)',
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          category: { type: SchemaType.STRING, description: '카테고리명 (□ 기호 포함)' },
+          articles: {
+            type: SchemaType.ARRAY,
+            items: {
+              type: SchemaType.OBJECT,
+              properties: {
+                title: { type: SchemaType.STRING, description: '기사 제목 (○ 기호 포함)' },
+                summary: { type: SchemaType.STRING, description: '기사 요약 (- 기호 포함)' },
+              },
+              required: ['title', 'summary'],
+            },
+          },
+        },
+        required: ['category', 'articles'],
+      },
+    },
+    content: {
+      type: SchemaType.ARRAY,
+      description: '본문 섹션',
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          category: { type: SchemaType.STRING, description: '카테고리명' },
+          articles: {
+            type: SchemaType.ARRAY,
+            items: {
+              type: SchemaType.OBJECT,
+              properties: {
+                title: { type: SchemaType.STRING, description: '기사 소제목 (특수기호 포함)' },
+                paragraphs: {
+                  type: SchemaType.ARRAY,
+                  items: {
+                    type: SchemaType.OBJECT,
+                    properties: {
+                      type: {
+                        type: SchemaType.STRING,
+                        description: '단락 타입',
+                        enum: ['text', 'list', 'quote'],
+                      },
+                      content: { type: SchemaType.STRING, description: '단락 내용' },
+                      items: {
+                        type: SchemaType.ARRAY,
+                        items: { type: SchemaType.STRING },
+                        nullable: true,
+                      },
+                    },
+                    required: ['type', 'content'],
+                  },
+                },
+              },
+              required: ['title', 'paragraphs'],
+            },
+          },
+        },
+        required: ['category', 'articles'],
+      },
+    },
+    metadata: {
+      type: SchemaType.OBJECT,
+      properties: {
+        originalFileName: { type: SchemaType.STRING },
+        processedAt: { type: SchemaType.STRING, description: 'ISO 8601 형식' },
+        model: { type: SchemaType.STRING },
+        totalPages: { type: SchemaType.NUMBER, nullable: true },
+        language: { type: SchemaType.STRING, nullable: true },
+      },
+      required: ['originalFileName', 'processedAt', 'model'],
+    },
+  },
+  required: ['header', 'summary', 'content', 'metadata'],
+};
+
+/**
+ * Gemini API로 PDF를 구조화된 JSON으로 변환 (JSON 모드)
+ *
+ * @param pdfBuffer PDF 파일 버퍼
+ * @param fileName 원본 파일명
+ * @returns 구조화된 JSON 데이터
+ */
+export async function convertPDFToJSONWithGemini(
+  pdfBuffer: Buffer,
+  fileName: string
+): Promise<GeminiJsonConversionResult> {
+  if (!isGeminiConfigured()) {
+    throw new Error('Gemini API 키가 설정되지 않았습니다.');
+  }
+
+  const genai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+
+  // Gemini 2.5 Pro 모델 사용 (JSON 모드)
+  const model = genai.getGenerativeModel({
+    model: 'gemini-2.5-pro',
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: GEMINI_RESPONSE_SCHEMA,
+    },
+  });
+
+  try {
+    console.log('[Gemini JSON] PDF 분석 중...', fileName);
+
+    // PDF를 base64로 인코딩
+    const base64Pdf = pdfBuffer.toString('base64');
+
+    // JSON 모드용 프롬프트
+    const prompt = `지금부터 당신은 PDF 문서를 구조화된 JSON 데이터로 변환하는 전문 파서입니다.
+업로드된 '일일 외신 보도 동향' PDF 파일을 아래 규칙에 따라 JSON 형식으로 변환해 주세요.
+
+## 문서 구조 분석
+이 문서는 크게 **[헤더]**, **[요지]**, **[본문]** 세 부분으로 구성됩니다.
+
+### 1. [헤더] 파싱
+- title: 문서 제목 (예: '일일 외신 보도 동향')
+- date: 날짜 (예: '2025.01.15 (수)')
+- subtitle: 부서명 등 (예: '외교부 해외언론과')
+
+### 2. [요지] 파싱 - 3단계 계층 구조
+요지 섹션은 다음 패턴으로 시작합니다: [요지], 【요지】, ◇ 요지, ◆ 요지
+
+**1단계 (대분류 - □):**
+- "□"로 시작하는 줄을 찾습니다
+- category 필드에 **□  기호를 포함한 전체 텍스트**를 저장합니다
+- 예: "□ 국내 정치", "□ 북한", "□ 미국"
+
+**2단계 (기사 제목 - ○):**
+- "○"로 시작하는 줄을 찾습니다
+- title 필드에 **○ 기호를 포함한 전체 텍스트**를 저장합니다
+- 예: "○ 美 대선 여론조사 결과 분석"
+
+**3단계 (기사 요약 - -):**
+- "-" 또는 "–"로 시작하는 들여쓰기된 줄을 찾습니다
+- summary 필드에 **- 기호를 포함한 전체 텍스트**를 저장합니다
+- 여러 줄의 요약은 줄바꿈(\\n)으로 연결합니다
+
+### 3. [본문] 파싱
+**카테고리 제목:**
+- 요지와 동일한 카테고리명이 특수 기호 없이 나타날 때
+- category 필드에 저장합니다
+
+**개별 기사:**
+- title: 기사 소제목 (**특수기호 <>, ▲, □, - 등을 유지**)
+- paragraphs: 단락 배열
+  - type: 'text' | 'list' | 'quote'
+  - content: 단락 내용 (**- 기호로 시작하면 - 유지**)
+  - items: type이 'list'일 때 리스트 항목들
+
+### 4. [메타데이터]
+- originalFileName: "${fileName}"
+- processedAt: 현재 시간 (ISO 8601 형식)
+- model: "gemini-2.5-pro"
+- language: "ko" (한국어)
+
+## 중요 규칙
+1. **원본 텍스트를 그대로 유지**: 특수기호 □, ○, -, <>, ▲ 등은 **모두 보존**
+2. **누락 금지**: 문서의 모든 내용을 빠짐없이 포함
+3. **정확한 계층 구조**: 요지는 3단계, 본문은 카테고리 → 기사 → 단락 구조 유지
+
+JSON 스키마에 맞춰 정확하게 변환해 주세요.`;
+
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          mimeType: 'application/pdf',
+          data: base64Pdf,
+        },
+      },
+      prompt,
+    ]);
+
+    const response = result.response;
+    const jsonText = response.text();
+
+    console.log('[Gemini JSON] 응답 길이:', jsonText.length);
+
+    // JSON 파싱
+    let parsedData: any;
+    try {
+      parsedData = JSON.parse(jsonText);
+    } catch (parseError) {
+      console.error('[Gemini JSON] JSON 파싱 실패:', parseError);
+      throw new Error('Gemini가 유효하지 않은 JSON을 반환했습니다.');
+    }
+
+    // Zod 스키마로 검증
+    const validationResult = safeParseParsedDocument(parsedData);
+
+    if (!validationResult.success) {
+      console.error('[Gemini JSON] 스키마 검증 실패:', validationResult.error);
+      throw new Error(
+        `Gemini 응답이 스키마와 일치하지 않습니다: ${validationResult.error.message}`
+      );
+    }
+
+    console.log('[Gemini JSON] JSON 변환 및 검증 완료');
+    console.log('[Gemini JSON] 요지 카테고리 수:', validationResult.data.summary.length);
+    console.log('[Gemini JSON] 본문 섹션 수:', validationResult.data.content.length);
+
+    return {
+      data: validationResult.data,
+      method: 'gemini-pdf-json',
+      tokens: response.usageMetadata?.totalTokenCount || 0,
+    };
+  } catch (error) {
+    console.error('Gemini JSON API 오류:', error);
+    throw new Error(
+      `Gemini PDF JSON 변환 중 오류가 발생했습니다: ${
         error instanceof Error ? error.message : '알 수 없는 오류'
       }`
     );

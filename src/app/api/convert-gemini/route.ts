@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
-import { convertPDFToHTMLWithGemini } from '@/lib/gemini';
+import { convertPDFToJSONWithGemini } from '@/lib/gemini';
+import { convertDocumentToHTML } from '@/lib/html-generator';
 import { uploadPDF, uploadHTML } from '@/lib/storage';
-import { createConversion, completeConversion, failConversion } from '@/lib/db';
+import {
+  createConversion,
+  updateConversion,
+  completeConversion,
+  failConversion,
+  saveDocumentData,
+} from '@/lib/db';
 
 export const maxDuration = 60; // 최대 60초
 
@@ -44,31 +51,69 @@ export async function POST(request: NextRequest) {
       inputUrl,
     });
 
-    // 3. PDF → HTML 변환 (Gemini API 사용)
-    let htmlResult;
+    // 3. PDF → JSON 변환 (Gemini JSON 모드)
+    let jsonResult;
     try {
-      htmlResult = await convertPDFToHTMLWithGemini(pdfBuffer, file.name);
+      console.log('[API] Gemini JSON 변환 시작...');
+      jsonResult = await convertPDFToJSONWithGemini(pdfBuffer, file.name);
+      console.log('[API] Gemini JSON 변환 완료:', {
+        summaryCount: jsonResult.data.summary.length,
+        contentCount: jsonResult.data.content.length,
+      });
     } catch (error) {
+      console.error('[API] Gemini JSON 변환 실패:', error);
       await failConversion(conversionId);
       throw error;
     }
 
-    // 4. HTML 업로드
-    const { url: outputUrl } = await uploadHTML(htmlResult.html, file.name);
+    // 4. 구조화된 데이터를 DB에 저장
+    const documentId = nanoid();
+    try {
+      await saveDocumentData({
+        id: documentId,
+        conversionId,
+        data: jsonResult.data,
+      });
+      console.log('[API] 구조화된 데이터 저장 완료:', documentId);
+    } catch (error) {
+      console.error('[API] 데이터 저장 실패:', error);
+      await failConversion(conversionId);
+      throw new Error('구조화된 데이터 저장 중 오류가 발생했습니다.');
+    }
 
-    // 5. 변환 완료 처리
+    // 5. JSON → HTML 변환
+    let html: string;
+    try {
+      console.log('[API] HTML 생성 시작...');
+      html = convertDocumentToHTML(jsonResult.data);
+      console.log('[API] HTML 생성 완료:', html.length, 'bytes');
+    } catch (error) {
+      console.error('[API] HTML 생성 실패:', error);
+      await failConversion(conversionId);
+      throw new Error('HTML 생성 중 오류가 발생했습니다.');
+    }
+
+    // 6. HTML 업로드
+    const { url: outputUrl } = await uploadHTML(html, file.name);
+
+    // 7. 변환 완료 처리 (hasStructuredData 플래그 설정)
     const conversion = await completeConversion(
       conversionId,
       outputUrl,
-      htmlResult.method,
-      htmlResult.tokens
+      jsonResult.method,
+      jsonResult.tokens
     );
+
+    // hasStructuredData 플래그 업데이트
+    await updateConversion(conversionId, { hasStructuredData: true });
 
     return NextResponse.json({
       success: true,
       conversionId,
+      documentId,
       outputUrl,
       conversion,
+      structured: true, // JSON 구조 사용 표시
     });
   } catch (error) {
     console.error('Gemini conversion error:', error);
