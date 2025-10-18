@@ -1,0 +1,147 @@
+import {
+  ServicePrincipalCredentials,
+  PDFServices,
+  MimeType,
+  ExtractPDFParams,
+  ExtractElementType,
+  ExtractPDFJob,
+  ExtractPDFResult,
+  SDKError,
+  ServiceUsageError,
+  ServiceApiError,
+} from '@adobe/pdfservices-node-sdk';
+import fs from 'fs';
+import path from 'path';
+import { Readable } from 'stream';
+
+export interface AdobeExtractionResult {
+  text: string;
+  structure: {
+    elements: Array<{
+      type: string;
+      text?: string;
+      path?: string;
+    }>;
+  };
+  method: 'adobe-extract';
+}
+
+/**
+ * Adobe PDF Services 클라이언트 초기화
+ */
+function getAdobeClient() {
+  const clientId = process.env.ADOBE_CLIENT_ID;
+  const clientSecret = process.env.ADOBE_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    throw new Error('Adobe API credentials not configured');
+  }
+
+  const credentials = new ServicePrincipalCredentials({
+    clientId,
+    clientSecret,
+  });
+
+  return new PDFServices({ credentials });
+}
+
+/**
+ * Adobe PDF Services를 사용하여 PDF 구조 추출
+ */
+export async function extractPDFStructure(
+  pdfBuffer: Buffer
+): Promise<AdobeExtractionResult> {
+  try {
+    const pdfServices = getAdobeClient();
+
+    // Create a readable stream from buffer
+    const inputStream = Readable.from(pdfBuffer);
+
+    // Create an asset from the stream
+    const inputAsset = await pdfServices.upload({
+      readStream: inputStream,
+      mimeType: MimeType.PDF,
+    });
+
+    // Create parameters for the job
+    const params = new ExtractPDFParams({
+      elementsToExtract: [ExtractElementType.TEXT],
+    });
+
+    // Create the job
+    const job = new ExtractPDFJob({ inputAsset, params });
+
+    // Submit the job and get the result
+    const pollingURL = await pdfServices.submit({ job });
+    const pdfServicesResponse = await pdfServices.getJobResult({
+      pollingURL,
+      resultType: ExtractPDFResult,
+    });
+
+    // Get result asset
+    const resultAsset = pdfServicesResponse.result.resource;
+    const streamAsset = await pdfServices.getContent({ asset: resultAsset });
+
+    // Read the result (ZIP file containing JSON)
+    const chunks: Buffer[] = [];
+    for await (const chunk of streamAsset.readStream) {
+      chunks.push(Buffer.from(chunk));
+    }
+    const resultBuffer = Buffer.concat(chunks);
+
+    // Parse the ZIP and extract JSON
+    // For now, we'll use a simplified approach
+    // In production, you'd want to properly parse the ZIP file
+    const textContent = extractTextFromAdobeResult(resultBuffer);
+
+    return {
+      text: textContent,
+      structure: {
+        elements: [], // Would parse actual structure from Adobe's JSON
+      },
+      method: 'adobe-extract',
+    };
+  } catch (error) {
+    console.error('Adobe PDF extraction error:', error);
+
+    if (error instanceof ServiceUsageError || error instanceof ServiceApiError) {
+      throw new Error(`Adobe API error: ${error.message}`);
+    }
+
+    throw new Error('Adobe PDF 구조 추출 중 오류가 발생했습니다.');
+  }
+}
+
+/**
+ * Adobe 결과에서 텍스트 추출 (간단한 구현)
+ */
+function extractTextFromAdobeResult(zipBuffer: Buffer): string {
+  // Adobe returns a ZIP file with structuredData.json
+  // For MVP, we'll implement a basic extraction
+  // TODO: Implement proper ZIP parsing with adm-zip or similar
+
+  try {
+    // This is a placeholder - in production, parse the actual JSON
+    const jsonStr = zipBuffer.toString('utf-8');
+
+    // Try to extract text from JSON if possible
+    const textMatch = jsonStr.match(/"text":\s*"([^"]+)"/g);
+    if (textMatch) {
+      return textMatch
+        .map((m) => m.replace(/"text":\s*"([^"]+)"/, '$1'))
+        .join('\n\n');
+    }
+
+    return jsonStr;
+  } catch (error) {
+    console.error('Error parsing Adobe result:', error);
+    return '';
+  }
+}
+
+/**
+ * Adobe API 사용 가능 여부 확인
+ */
+export function isAdobeConfigured(): boolean {
+  return !!(process.env.ADOBE_CLIENT_ID && process.env.ADOBE_CLIENT_SECRET);
+}
