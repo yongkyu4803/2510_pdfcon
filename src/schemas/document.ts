@@ -18,7 +18,7 @@ export const ParagraphTypeSchema = z.enum(['text', 'list', 'quote']);
 export const ParagraphSchema = z.object({
   type: ParagraphTypeSchema,
   content: z.string().min(1, '단락 내용은 필수입니다'),
-  items: z.array(z.string()).optional(),
+  items: z.array(z.string()).nullable().optional(), // null 또는 undefined 허용
 });
 
 /**

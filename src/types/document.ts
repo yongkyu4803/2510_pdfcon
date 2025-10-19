@@ -20,8 +20,8 @@ export interface Paragraph {
   type: ParagraphType;
   /** 단락 내용 (특수기호 포함) */
   content: string;
-  /** 리스트일 경우 하위 항목들 */
-  items?: string[];
+  /** 리스트일 경우 하위 항목들 (null 가능) */
+  items?: string[] | null;
 }
 
 /**
