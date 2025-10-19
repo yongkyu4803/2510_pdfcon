@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { FileText, ArrowLeft, ExternalLink, Clock } from 'lucide-react';
+import { FileText, ArrowLeft, ExternalLink, Clock, FileJson } from 'lucide-react';
 import type { Conversion } from '@/lib/db';
 
 export default function HistoryPage() {
@@ -112,7 +112,15 @@ export default function HistoryPage() {
                     <div className="flex items-start gap-4 flex-1">
                       <FileText className="h-6 w-6 text-blue-500 flex-shrink-0 mt-1" />
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-lg truncate">{conversion.fileName}</h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-medium text-lg truncate">{conversion.fileName}</h3>
+                          {conversion.hasStructuredData && (
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded-full flex items-center gap-1">
+                              <FileJson className="h-3 w-3" />
+                              JSON
+                            </span>
+                          )}
+                        </div>
                         <div className="mt-2 flex flex-wrap gap-4 text-sm text-gray-600">
                           <span>{formatFileSize(conversion.fileSize)}</span>
                           <span>{formatDate(conversion.createdAt)}</span>
@@ -126,15 +134,25 @@ export default function HistoryPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 ml-4">
+                    <div className="flex items-center gap-2 ml-4">
                       {getStatusBadge(conversion.status)}
                       {conversion.status === 'completed' && conversion.outputUrl && (
-                        <Link href={`/view/${conversion.id}`}>
-                          <Button size="sm" variant="outline">
-                            <ExternalLink className="h-4 w-4 mr-2" />
-                            보기
-                          </Button>
-                        </Link>
+                        <>
+                          <Link href={`/view/${conversion.id}`}>
+                            <Button size="sm" variant="outline">
+                              <ExternalLink className="h-4 w-4 mr-2" />
+                              HTML
+                            </Button>
+                          </Link>
+                          {conversion.hasStructuredData && (
+                            <Link href={`/view/${conversion.id}/json`}>
+                              <Button size="sm" variant="outline">
+                                <FileJson className="h-4 w-4 mr-2" />
+                                JSON
+                              </Button>
+                            </Link>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

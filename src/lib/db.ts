@@ -1,11 +1,11 @@
-import { sql } from '@vercel/postgres';
-import { drizzle } from 'drizzle-orm/vercel-postgres';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
 import { pgTable, varchar, integer, timestamp, text, jsonb, boolean } from 'drizzle-orm/pg-core';
 import { eq, desc } from 'drizzle-orm';
 import type { ParsedDocument } from '@/types/document';
 
-// Schema
-export const conversions = pgTable('conversions', {
+// Schema (테이블명에 pdfcon_ 접두어 추가)
+export const conversions = pgTable('pdfcon_conversions', {
   id: varchar('id', { length: 21 }).primaryKey(),
   fileName: varchar('file_name', { length: 255 }).notNull(),
   fileSize: integer('file_size').notNull(),
@@ -19,7 +19,7 @@ export const conversions = pgTable('conversions', {
   completedAt: timestamp('completed_at'),
 });
 
-export const documentData = pgTable('document_data', {
+export const documentData = pgTable('pdfcon_document_data', {
   id: varchar('id', { length: 21 }).primaryKey(),
   conversionId: varchar('conversion_id', { length: 21 })
     .notNull()
@@ -37,12 +37,17 @@ export type NewDocumentData = typeof documentData.$inferInsert;
 // 로컬 개발용 메모리 데이터베이스
 const localDb = new Map<string, Conversion>();
 const localDocumentDb = new Map<string, DocumentData>();
-const isLocal = !process.env.POSTGRES_URL;
+const isLocal = !process.env.DATABASE_URL;
 
-// Database client (프로덕션용)
+// Database client (Supabase PostgreSQL)
 let db: ReturnType<typeof drizzle> | null = null;
+let client: ReturnType<typeof postgres> | null = null;
+
 if (!isLocal) {
-  db = drizzle(sql);
+  client = postgres(process.env.DATABASE_URL!, {
+    prepare: false, // Supabase에서 필요
+  });
+  db = drizzle(client);
 }
 
 /**

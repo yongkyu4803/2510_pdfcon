@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { HTMLViewer } from '@/components/html-viewer';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, FileJson } from 'lucide-react';
 import { getConversion } from '@/lib/db';
 import { getFromLocalStorage } from '@/lib/storage';
 
@@ -46,10 +46,22 @@ export default async function ViewPage({ params }: ViewPageProps) {
               홈으로
             </Button>
           </Link>
-          <h1 className="text-2xl font-bold text-gray-900">{conversion.fileName}</h1>
-          <p className="mt-1 text-sm text-gray-600">
-            {new Date(conversion.createdAt).toLocaleString('ko-KR')}
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">{conversion.fileName}</h1>
+              <p className="mt-1 text-sm text-gray-600">
+                {new Date(conversion.createdAt).toLocaleString('ko-KR')}
+              </p>
+            </div>
+            {conversion.hasStructuredData && (
+              <Link href={`/view/${id}/json`}>
+                <Button variant="outline">
+                  <FileJson className="h-4 w-4 mr-2" />
+                  JSON 뷰
+                </Button>
+              </Link>
+            )}
+          </div>
         </header>
 
         {/* HTML Viewer */}
