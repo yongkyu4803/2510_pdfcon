@@ -228,3 +228,63 @@ export function validateDocumentData(data: unknown) {
 export function safeParseDocumentData(data: unknown) {
   return DocumentDataSchema.safeParse(data);
 }
+
+// ============================================================================
+// 국내 정책보도 전용 스키마
+// ============================================================================
+
+/**
+ * 국내 정책보도 - 세부 항목 스키마
+ */
+export const DomesticDetailItemSchema = z.object({
+  content: z.string().min(1, '세부 항목 내용은 필수입니다'),
+});
+
+/**
+ * 국내 정책보도 - 종합 요약 카테고리 스키마
+ */
+export const DomesticSummaryCategorySchema = z.object({
+  category: z.string().min(1, '카테고리명은 필수입니다 (○ 기호 포함)'),
+  items: z.array(DomesticDetailItemSchema),
+});
+
+/**
+ * 국내 정책보도 - 사설 요약 카테고리 스키마
+ */
+export const DomesticEditorialCategorySchema = z.object({
+  category: z.string().min(1, '사설 카테고리명은 필수입니다'),
+  content: z.string().min(1, '사설 내용은 필수입니다'),
+});
+
+/**
+ * 국내 정책보도 - 문서 헤더 스키마
+ */
+export const DomesticDocumentHeaderSchema = z.object({
+  title: z.string().min(1, '문서 제목은 필수입니다'),
+  meta: z.array(z.string()),
+});
+
+/**
+ * 국내 정책보도 - 파싱된 문서 스키마
+ */
+export const DomesticParsedDocumentSchema = z.object({
+  header: DomesticDocumentHeaderSchema,
+  summary: z.array(DomesticSummaryCategorySchema),
+  editorials: z.array(DomesticEditorialCategorySchema),
+  content: z.array(ContentSectionSchema),
+  metadata: DocumentMetadataSchema,
+});
+
+/**
+ * 국내 정책보도 문서 검증
+ */
+export function validateDomesticParsedDocument(data: unknown) {
+  return DomesticParsedDocumentSchema.parse(data);
+}
+
+/**
+ * 국내 정책보도 문서 안전 검증 (에러 반환)
+ */
+export function safeParseDomesticParsedDocument(data: unknown) {
+  return DomesticParsedDocumentSchema.safeParse(data);
+}

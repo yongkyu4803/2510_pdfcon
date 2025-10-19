@@ -5,17 +5,22 @@ import { Download, FileJson, FileCode, ChevronDown, ChevronRight } from 'lucide-
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';
-import type { ParsedDocument } from '@/types/document';
+import type { ParsedDocument, DomesticParsedDocument, AnyParsedDocument } from '@/types/document';
 import Link from 'next/link';
 
 interface JsonViewerProps {
-  data: ParsedDocument;
+  data: AnyParsedDocument;
   conversionId: string;
   fileName?: string;
 }
 
 export function JsonViewer({ data, conversionId, fileName = 'document' }: JsonViewerProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['header']));
+
+  // 타입 가드: 국내 정책보도 문서인지 확인
+  const isDomesticDocument = (doc: AnyParsedDocument): doc is DomesticParsedDocument => {
+    return 'editorials' in doc && Array.isArray((doc as DomesticParsedDocument).editorials);
+  };
 
   const toggleSection = (sectionId: string) => {
     const newExpanded = new Set(expandedSections);
@@ -42,6 +47,7 @@ export function JsonViewer({ data, conversionId, fileName = 'document' }: JsonVi
   };
 
   const isExpanded = (sectionId: string) => expandedSections.has(sectionId);
+  const isDomestic = isDomesticDocument(data);
 
   return (
     <div className="space-y-4">
@@ -84,20 +90,41 @@ export function JsonViewer({ data, conversionId, fileName = 'document' }: JsonVi
         </button>
         {isExpanded('header') && (
           <div className="p-4 space-y-2">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <span className="text-sm font-medium text-gray-600">제목:</span>
-                <p className="mt-1">{data.header.title}</p>
+            {isDomestic ? (
+              // 국내 정책보도: title + meta 배열
+              <div className="space-y-3">
+                <div>
+                  <span className="text-sm font-medium text-gray-600">제목:</span>
+                  <p className="mt-1">{data.header.title}</p>
+                </div>
+                <div>
+                  <span className="text-sm font-medium text-gray-600">메타 정보:</span>
+                  <div className="mt-1 space-y-1">
+                    {(data as DomesticParsedDocument).header.meta.map((metaItem, idx) => (
+                      <p key={`meta-${idx}`} className="text-sm text-gray-700">
+                        {metaItem}
+                      </p>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div>
-                <span className="text-sm font-medium text-gray-600">날짜:</span>
-                <p className="mt-1">{data.header.date}</p>
+            ) : (
+              // 외신: title, date, issue
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-sm font-medium text-gray-600">제목:</span>
+                  <p className="mt-1">{data.header.title}</p>
+                </div>
+                <div>
+                  <span className="text-sm font-medium text-gray-600">날짜:</span>
+                  <p className="mt-1">{(data as ParsedDocument).header.date}</p>
+                </div>
+                <div>
+                  <span className="text-sm font-medium text-gray-600">호수:</span>
+                  <p className="mt-1">{(data as ParsedDocument).header.issue}</p>
+                </div>
               </div>
-              <div>
-                <span className="text-sm font-medium text-gray-600">호수:</span>
-                <p className="mt-1">{data.header.issue}</p>
-              </div>
-            </div>
+            )}
           </div>
         )}
       </Card>
@@ -115,24 +142,74 @@ export function JsonViewer({ data, conversionId, fileName = 'document' }: JsonVi
               ) : (
                 <ChevronRight className="h-4 w-4" />
               )}
-              <h4 className="font-semibold">요지 ({data.summary.length}개 카테고리)</h4>
+              <h4 className="font-semibold">
+                {isDomestic ? '종합 요약' : '요지'} ({data.summary.length}개 카테고리)
+              </h4>
             </div>
           </button>
           {isExpanded('summary') && (
             <div className="p-4 space-y-4">
-              {data.summary.map((category, catIndex) => (
-                <div key={`summary-${catIndex}`} className="border-l-4 border-blue-500 pl-4">
-                  <h5 className="font-medium text-blue-900 mb-2">{category.category}</h5>
-                  <div className="space-y-2">
-                    {category.articles.map((article, artIndex) => (
-                      <div key={`summary-article-${catIndex}-${artIndex}`} className="bg-gray-50 p-3 rounded">
-                        <h6 className="font-medium text-sm mb-1">{article.title}</h6>
-                        {article.summary && (
-                          <p className="text-sm text-gray-700 whitespace-pre-line">{article.summary}</p>
-                        )}
-                      </div>
-                    ))}
+              {isDomestic ? (
+                // 국내 정책보도: 2단계 구조 (○ → -)
+                (data as DomesticParsedDocument).summary.map((category, catIndex) => (
+                  <div key={`summary-${catIndex}`} className="border-l-4 border-blue-500 pl-4">
+                    <h5 className="font-medium text-blue-900 mb-2">{category.category}</h5>
+                    <div className="space-y-1">
+                      {category.items.map((item, itemIndex) => (
+                        <div key={`summary-item-${catIndex}-${itemIndex}`} className="bg-gray-50 p-2 rounded">
+                          <p className="text-sm text-gray-700">{item.content}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
+                ))
+              ) : (
+                // 외신: 3단계 구조 (□ → ○ → -)
+                (data as ParsedDocument).summary.map((category, catIndex) => (
+                  <div key={`summary-${catIndex}`} className="border-l-4 border-blue-500 pl-4">
+                    <h5 className="font-medium text-blue-900 mb-2">{category.category}</h5>
+                    <div className="space-y-2">
+                      {category.articles.map((article, artIndex) => (
+                        <div key={`summary-article-${catIndex}-${artIndex}`} className="bg-gray-50 p-3 rounded">
+                          <h6 className="font-medium text-sm mb-1">{article.title}</h6>
+                          {article.summary && (
+                            <p className="text-sm text-gray-700 whitespace-pre-line">{article.summary}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Editorials Section (국내 정책보도 전용) */}
+      {isDomestic && (data as DomesticParsedDocument).editorials && (data as DomesticParsedDocument).editorials.length > 0 && (
+        <Card className="overflow-hidden">
+          <button
+            onClick={() => toggleSection('editorials')}
+            className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              {isExpanded('editorials') ? (
+                <ChevronDown className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+              <h4 className="font-semibold">
+                금일 사설 ({(data as DomesticParsedDocument).editorials.length}개)
+              </h4>
+            </div>
+          </button>
+          {isExpanded('editorials') && (
+            <div className="p-4 space-y-3">
+              {(data as DomesticParsedDocument).editorials.map((editorial, editIndex) => (
+                <div key={`editorial-${editIndex}`} className="border-l-4 border-yellow-500 pl-4 bg-yellow-50 p-3 rounded">
+                  <h5 className="font-medium text-yellow-900 mb-1">{editorial.category}</h5>
+                  <p className="text-sm text-gray-700">{editorial.content}</p>
                 </div>
               ))}
             </div>

@@ -136,3 +136,69 @@ export interface HtmlGenerationOptions {
   /** 커스텀 CSS 클래스 접두사 */
   classPrefix?: string;
 }
+
+// ============================================================================
+// 국내 정책보도 전용 타입
+// ============================================================================
+
+/**
+ * 국내 정책보도 - 세부 항목 구조
+ * (종합 요약 2단계)
+ */
+export interface DomesticDetailItem {
+  /** 세부 항목 내용 (- 또는 <> 로 시작) */
+  content: string;
+}
+
+/**
+ * 국내 정책보도 - 종합 요약 카테고리 구조
+ * (2단계: ○ → -)
+ */
+export interface DomesticSummaryCategory {
+  /** 대분류 카테고리명 (○ 기호 포함) */
+  category: string;
+  /** 세부 항목들 */
+  items: DomesticDetailItem[];
+}
+
+/**
+ * 국내 정책보도 - 사설 요약 카테고리 구조
+ */
+export interface DomesticEditorialCategory {
+  /** 사설 카테고리명 (■ 기호 제거됨, 예: "통상", "국회") */
+  category: string;
+  /** 사설 내용 */
+  content: string;
+}
+
+/**
+ * 국내 정책보도 - 문서 헤더 정보
+ */
+export interface DomesticDocumentHeader {
+  /** 문서 제목 (예: "정책 보도 일일 종합") */
+  title: string;
+  /** 헤더 메타 정보 배열 (날짜, 대상 언론사, 부서명 등) */
+  meta: string[];
+}
+
+/**
+ * 국내 정책보도 - 파싱된 문서 전체 구조
+ */
+export interface DomesticParsedDocument {
+  /** 문서 헤더 정보 */
+  header: DomesticDocumentHeader;
+  /** 종합 요약 섹션 (2단계 계층 구조) */
+  summary: DomesticSummaryCategory[];
+  /** 사설 요약 섹션 */
+  editorials: DomesticEditorialCategory[];
+  /** 본문 섹션 (외신과 동일한 구조) */
+  content: ContentSection[];
+  /** 메타데이터 */
+  metadata: DocumentMetadata;
+}
+
+/**
+ * 모든 문서 타입의 Union 타입
+ * (외신 보도 또는 국내 정책보도)
+ */
+export type AnyParsedDocument = ParsedDocument | DomesticParsedDocument;

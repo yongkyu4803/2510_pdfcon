@@ -18,9 +18,17 @@ export function HTMLViewer({ htmlContent, fileName = 'converted', shareUrl }: HT
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
-    // XSS 방지를 위한 HTML 정화
+    // 일일외신 HTML 형식: 전체 HTML 문서 허용 (style, meta 등 포함)
     const clean = DOMPurify.sanitize(htmlContent, {
+      WHOLE_DOCUMENT: true,
       ALLOWED_TAGS: [
+        'html',
+        'head',
+        'body',
+        'meta',
+        'title',
+        'style',
+        'link',
         'h1',
         'h2',
         'h3',
@@ -37,6 +45,12 @@ export function HTMLViewer({ htmlContent, fileName = 'converted', shareUrl }: HT
         'br',
         'div',
         'span',
+        'section',
+        'article',
+        'header',
+        'footer',
+        'main',
+        'blockquote',
         'table',
         'thead',
         'tbody',
@@ -44,7 +58,7 @@ export function HTMLViewer({ htmlContent, fileName = 'converted', shareUrl }: HT
         'th',
         'td',
       ],
-      ALLOWED_ATTR: ['href', 'class', 'id'],
+      ALLOWED_ATTR: ['href', 'class', 'id', 'style', 'charset', 'name', 'content', 'rel', 'lang'],
     });
     setSanitizedHTML(clean);
   }, [htmlContent]);
