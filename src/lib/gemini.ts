@@ -183,9 +183,9 @@ const GEMINI_RESPONSE_SCHEMA = {
               type: SchemaType.OBJECT,
               properties: {
                 title: { type: SchemaType.STRING, description: '기사 제목 (○ 기호 포함)' },
-                summary: { type: SchemaType.STRING, description: '기사 요약 (- 기호 포함)' },
+                summary: { type: SchemaType.STRING, description: '기사 요약 (- 기호 포함, 선택사항)', nullable: true },
               },
-              required: ['title', 'summary'],
+              required: ['title'],
             },
           },
         },
@@ -309,6 +309,7 @@ export async function convertPDFToJSONWithGemini(
 - "-" 또는 "–"로 시작하는 들여쓰기된 줄을 찾습니다
 - summary 필드에 **- 기호를 포함한 전체 텍스트**를 저장합니다
 - 여러 줄의 요약은 줄바꿈(\\n)으로 연결합니다
+- **요약이 없는 경우 summary 필드를 빈 문자열("")로 설정합니다**
 
 ### 3. [본문] 파싱
 **카테고리 제목:**

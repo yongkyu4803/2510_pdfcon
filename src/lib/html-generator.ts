@@ -335,10 +335,13 @@ export function generateHTML(
 
       for (const article of category.articles) {
         parts.push(`          <li class="article-title">${escapeHtml(article.title)}</li>`);
-        // 요약은 여러 줄일 수 있으므로 줄바꿈을 <p>로 분리
-        const summaryLines = article.summary.split('\n').filter((line) => line.trim());
-        for (const line of summaryLines) {
-          parts.push(`          <p class="article-summary">${escapeHtml(line)}</p>`);
+        // 요약이 있는 경우에만 표시
+        if (article.summary && article.summary.trim()) {
+          // 요약은 여러 줄일 수 있으므로 줄바꿈을 <p>로 분리
+          const summaryLines = article.summary.split('\n').filter((line) => line.trim());
+          for (const line of summaryLines) {
+            parts.push(`          <p class="article-summary">${escapeHtml(line)}</p>`);
+          }
         }
       }
 

@@ -42,7 +42,7 @@ export const ContentSectionSchema = z.object({
  */
 export const SummaryArticleSchema = z.object({
   title: z.string().min(1, '기사 제목은 필수입니다 (○ 기호 포함)'),
-  summary: z.string().min(1, '기사 요약은 필수입니다 (- 기호 포함)'),
+  summary: z.string().optional().default(''), // 요약이 없는 기사도 허용
 });
 
 /**

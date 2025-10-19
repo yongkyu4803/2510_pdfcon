@@ -50,8 +50,8 @@ export interface ContentSection {
 export interface SummaryArticle {
   /** 기사 제목 (○ 기호 포함) */
   title: string;
-  /** 기사 요약 내용 (- 기호 포함) */
-  summary: string;
+  /** 기사 요약 내용 (- 기호 포함, 선택사항) */
+  summary?: string;
 }
 
 /**
