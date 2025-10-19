@@ -1,53 +1,87 @@
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
-import { pgTable, varchar, integer, timestamp, text, jsonb, boolean } from 'drizzle-orm/pg-core';
-import { eq, desc } from 'drizzle-orm';
+import { createClient } from '@supabase/supabase-js';
 import type { ParsedDocument } from '@/types/document';
 
-// Schema (테이블명에 pdfcon_ 접두어 추가)
-export const conversions = pgTable('pdfcon_conversions', {
-  id: varchar('id', { length: 21 }).primaryKey(),
-  fileName: varchar('file_name', { length: 255 }).notNull(),
-  fileSize: integer('file_size').notNull(),
-  status: varchar('status', { length: 20 }).notNull(),
-  inputUrl: text('input_url'),
-  outputUrl: text('output_url'),
-  method: varchar('method', { length: 20 }),
-  tokens: integer('tokens'),
-  hasStructuredData: boolean('has_structured_data').default(false),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  completedAt: timestamp('completed_at'),
-});
+// Supabase 클라이언트 초기화
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
-export const documentData = pgTable('pdfcon_document_data', {
-  id: varchar('id', { length: 21 }).primaryKey(),
-  conversionId: varchar('conversion_id', { length: 21 })
-    .notNull()
-    .references(() => conversions.id, { onDelete: 'cascade' }),
-  data: jsonb('data').$type<ParsedDocument>().notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+// Types
+export interface Conversion {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  status: string;
+  inputUrl: string | null;
+  outputUrl: string | null;
+  method: string | null;
+  tokens: number | null;
+  hasStructuredData: boolean;
+  createdAt: Date;
+  completedAt: Date | null;
+}
 
-export type Conversion = typeof conversions.$inferSelect;
-export type NewConversion = typeof conversions.$inferInsert;
-export type DocumentData = typeof documentData.$inferSelect;
-export type NewDocumentData = typeof documentData.$inferInsert;
+export type NewConversion = Omit<Conversion, 'createdAt' | 'completedAt'> & {
+  createdAt?: Date;
+  completedAt?: Date | null;
+};
 
-// 로컬 개발용 메모리 데이터베이스
+export interface DocumentData {
+  id: string;
+  conversionId: string;
+  data: ParsedDocument;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type NewDocumentData = Omit<DocumentData, 'createdAt' | 'updatedAt'> & {
+  createdAt?: Date;
+  updatedAt?: Date;
+};
+
+// 로컬 메모리 DB
 const localDb = new Map<string, Conversion>();
 const localDocumentDb = new Map<string, DocumentData>();
-const isLocal = !process.env.DATABASE_URL;
+const isLocal = !supabase;
 
-// Database client (Supabase PostgreSQL)
-let db: ReturnType<typeof drizzle> | null = null;
-let client: ReturnType<typeof postgres> | null = null;
+if (supabase) {
+  console.log('[DB] Using Supabase');
+} else {
+  console.log('[DB] Using local memory database');
+}
 
-if (!isLocal) {
-  client = postgres(process.env.DATABASE_URL!, {
-    prepare: false, // Supabase에서 필요
-  });
-  db = drizzle(client);
+// Helper: DB row to Conversion
+function rowToConversion(row: any): Conversion {
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    fileSize: row.file_size,
+    status: row.status,
+    inputUrl: row.input_url,
+    outputUrl: row.output_url,
+    method: row.method,
+    tokens: row.tokens,
+    hasStructuredData: row.has_structured_data,
+    createdAt: new Date(row.created_at),
+    completedAt: row.completed_at ? new Date(row.completed_at) : null,
+  };
+}
+
+// Helper: Conversion to DB row
+function conversionToRow(data: NewConversion) {
+  return {
+    id: data.id,
+    file_name: data.fileName,
+    file_size: data.fileSize,
+    status: data.status,
+    input_url: data.inputUrl || null,
+    output_url: data.outputUrl || null,
+    method: data.method || null,
+    tokens: data.tokens || null,
+    has_structured_data: data.hasStructuredData || false,
+    created_at: data.createdAt ? data.createdAt.toISOString() : undefined,
+    completed_at: data.completedAt ? data.completedAt.toISOString() : null,
+  };
 }
 
 /**
@@ -63,14 +97,21 @@ export async function createConversion(data: NewConversion): Promise<Conversion>
       outputUrl: data.outputUrl || null,
       method: data.method || null,
       tokens: data.tokens || null,
+      hasStructuredData: data.hasStructuredData || false,
     };
     localDb.set(conversion.id, conversion);
     console.log('[Local DB] Created conversion:', conversion.id);
     return conversion;
   }
 
-  const [conversion] = await db!.insert(conversions).values(data).returning();
-  return conversion;
+  const { data: row, error } = await supabase!
+    .from('pdfcon_conversions')
+    .insert(conversionToRow(data))
+    .select()
+    .single();
+
+  if (error) throw error;
+  return rowToConversion(row);
 }
 
 /**
@@ -81,8 +122,18 @@ export async function getConversion(id: string): Promise<Conversion | null> {
     return localDb.get(id) || null;
   }
 
-  const [conversion] = await db!.select().from(conversions).where(eq(conversions.id, id));
-  return conversion || null;
+  const { data, error } = await supabase!
+    .from('pdfcon_conversions')
+    .select()
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    throw error;
+  }
+
+  return rowToConversion(data);
 }
 
 /**
@@ -90,25 +141,41 @@ export async function getConversion(id: string): Promise<Conversion | null> {
  */
 export async function updateConversion(
   id: string,
-  data: Partial<NewConversion>
+  updates: Partial<NewConversion>
 ): Promise<Conversion> {
   if (isLocal) {
     const existing = localDb.get(id);
     if (!existing) {
       throw new Error('Conversion not found');
     }
-    const updated = { ...existing, ...data };
+    const updated = { ...existing, ...updates };
     localDb.set(id, updated);
     console.log('[Local DB] Updated conversion:', id);
     return updated;
   }
 
-  const [conversion] = await db!
-    .update(conversions)
-    .set(data)
-    .where(eq(conversions.id, id))
-    .returning();
-  return conversion;
+  const updateData: any = {};
+  if (updates.fileName) updateData.file_name = updates.fileName;
+  if (updates.fileSize) updateData.file_size = updates.fileSize;
+  if (updates.status) updateData.status = updates.status;
+  if (updates.inputUrl !== undefined) updateData.input_url = updates.inputUrl;
+  if (updates.outputUrl !== undefined) updateData.output_url = updates.outputUrl;
+  if (updates.method !== undefined) updateData.method = updates.method;
+  if (updates.tokens !== undefined) updateData.tokens = updates.tokens;
+  if (updates.hasStructuredData !== undefined)
+    updateData.has_structured_data = updates.hasStructuredData;
+  if (updates.completedAt !== undefined)
+    updateData.completed_at = updates.completedAt ? updates.completedAt.toISOString() : null;
+
+  const { data, error } = await supabase!
+    .from('pdfcon_conversions')
+    .update(updateData)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return rowToConversion(data);
 }
 
 /**
@@ -121,7 +188,14 @@ export async function getRecentConversions(limit = 30): Promise<Conversion[]> {
       .slice(0, limit);
   }
 
-  return db!.select().from(conversions).orderBy(desc(conversions.createdAt)).limit(limit);
+  const { data, error } = await supabase!
+    .from('pdfcon_conversions')
+    .select()
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return data.map(rowToConversion);
 }
 
 /**
@@ -167,8 +241,27 @@ export async function saveDocumentData(data: NewDocumentData): Promise<DocumentD
     return doc;
   }
 
-  const [doc] = await db!.insert(documentData).values(data).returning();
-  return doc;
+  const { data: row, error } = await supabase!
+    .from('pdfcon_document_data')
+    .insert({
+      id: data.id,
+      conversion_id: data.conversionId,
+      data: data.data,
+      created_at: data.createdAt ? data.createdAt.toISOString() : undefined,
+      updated_at: data.updatedAt ? data.updatedAt.toISOString() : undefined,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return {
+    id: row.id,
+    conversionId: row.conversion_id,
+    data: row.data as ParsedDocument,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
 }
 
 /**
@@ -182,11 +275,138 @@ export async function getDocumentDataByConversionId(
     return docs.find((doc) => doc.conversionId === conversionId) || null;
   }
 
-  const [doc] = await db!
+  const { data, error } = await supabase!
+    .from('pdfcon_document_data')
     .select()
-    .from(documentData)
-    .where(eq(documentData.conversionId, conversionId));
-  return doc || null;
+    .eq('conversion_id', conversionId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    throw error;
+  }
+
+  return {
+    id: data.id,
+    conversionId: data.conversion_id,
+    data: data.data as ParsedDocument,
+    createdAt: new Date(data.created_at),
+    updatedAt: new Date(data.updated_at),
+  };
+}
+
+/**
+ * 데이터베이스 통계 정보
+ */
+export interface DatabaseStats {
+  totalConversions: number;
+  completedConversions: number;
+  failedConversions: number;
+  processingConversions: number;
+  totalDocuments: number;
+  totalTokens: number;
+  totalFileSize: number;
+  averageFileSize: number;
+  statusBreakdown: Record<string, number>;
+  methodBreakdown: Record<string, number>;
+  recentActivity: {
+    last24h: number;
+    last7days: number;
+    last30days: number;
+  };
+}
+
+/**
+ * 데이터베이스 통계 조회
+ */
+export async function getDatabaseStats(): Promise<DatabaseStats> {
+  if (isLocal) {
+    const conversions = Array.from(localDb.values());
+    const documents = Array.from(localDocumentDb.values());
+
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+
+    const statusBreakdown: Record<string, number> = {};
+    const methodBreakdown: Record<string, number> = {};
+    let totalTokens = 0;
+    let totalFileSize = 0;
+
+    conversions.forEach((conv) => {
+      statusBreakdown[conv.status] = (statusBreakdown[conv.status] || 0) + 1;
+      if (conv.method) {
+        methodBreakdown[conv.method] = (methodBreakdown[conv.method] || 0) + 1;
+      }
+      totalTokens += conv.tokens || 0;
+      totalFileSize += conv.fileSize;
+    });
+
+    return {
+      totalConversions: conversions.length,
+      completedConversions: conversions.filter((c) => c.status === 'completed').length,
+      failedConversions: conversions.filter((c) => c.status === 'failed').length,
+      processingConversions: conversions.filter((c) => c.status === 'processing').length,
+      totalDocuments: documents.length,
+      totalTokens,
+      totalFileSize,
+      averageFileSize: conversions.length > 0 ? totalFileSize / conversions.length : 0,
+      statusBreakdown,
+      methodBreakdown,
+      recentActivity: {
+        last24h: conversions.filter((c) => now - c.createdAt.getTime() < day).length,
+        last7days: conversions.filter((c) => now - c.createdAt.getTime() < 7 * day).length,
+        last30days: conversions.filter((c) => now - c.createdAt.getTime() < 30 * day).length,
+      },
+    };
+  }
+
+  // Supabase에서 통계 조회
+  const { data: conversions, error: convError } = await supabase!
+    .from('pdfcon_conversions')
+    .select('status, method, tokens, file_size, created_at');
+
+  if (convError) throw convError;
+
+  const { count: docCount, error: docError } = await supabase!
+    .from('pdfcon_document_data')
+    .select('*', { count: 'exact', head: true });
+
+  if (docError) throw docError;
+
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+
+  const statusBreakdown: Record<string, number> = {};
+  const methodBreakdown: Record<string, number> = {};
+  let totalTokens = 0;
+  let totalFileSize = 0;
+
+  conversions.forEach((conv: any) => {
+    statusBreakdown[conv.status] = (statusBreakdown[conv.status] || 0) + 1;
+    if (conv.method) {
+      methodBreakdown[conv.method] = (methodBreakdown[conv.method] || 0) + 1;
+    }
+    totalTokens += conv.tokens || 0;
+    totalFileSize += conv.file_size;
+  });
+
+  return {
+    totalConversions: conversions.length,
+    completedConversions: conversions.filter((c: any) => c.status === 'completed').length,
+    failedConversions: conversions.filter((c: any) => c.status === 'failed').length,
+    processingConversions: conversions.filter((c: any) => c.status === 'processing').length,
+    totalDocuments: docCount || 0,
+    totalTokens,
+    totalFileSize,
+    averageFileSize: conversions.length > 0 ? totalFileSize / conversions.length : 0,
+    statusBreakdown,
+    methodBreakdown,
+    recentActivity: {
+      last24h: conversions.filter((c: any) => now - new Date(c.created_at).getTime() < day).length,
+      last7days: conversions.filter((c: any) => now - new Date(c.created_at).getTime() < 7 * day).length,
+      last30days: conversions.filter((c: any) => now - new Date(c.created_at).getTime() < 30 * day).length,
+    },
+  };
 }
 
 /**
@@ -197,8 +417,24 @@ export async function getDocumentData(id: string): Promise<DocumentData | null> 
     return localDocumentDb.get(id) || null;
   }
 
-  const [doc] = await db!.select().from(documentData).where(eq(documentData.id, id));
-  return doc || null;
+  const { data, error } = await supabase!
+    .from('pdfcon_document_data')
+    .select()
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    throw error;
+  }
+
+  return {
+    id: data.id,
+    conversionId: data.conversion_id,
+    data: data.data as ParsedDocument,
+    createdAt: new Date(data.created_at),
+    updatedAt: new Date(data.updated_at),
+  };
 }
 
 /**
@@ -206,23 +442,39 @@ export async function getDocumentData(id: string): Promise<DocumentData | null> 
  */
 export async function updateDocumentData(
   id: string,
-  data: Partial<Pick<DocumentData, 'data'>>
+  updates: Partial<Pick<DocumentData, 'data'>>
 ): Promise<DocumentData> {
   if (isLocal) {
     const existing = localDocumentDb.get(id);
     if (!existing) {
       throw new Error('Document data not found');
     }
-    const updated = { ...existing, ...data, updatedAt: new Date() };
+    const updated = { ...existing, ...updates, updatedAt: new Date() };
     localDocumentDb.set(id, updated);
     console.log('[Local DB] Updated document data:', id);
     return updated;
   }
 
-  const [doc] = await db!
-    .update(documentData)
-    .set({ ...data, updatedAt: new Date() })
-    .where(eq(documentData.id, id))
-    .returning();
-  return doc;
+  const { data, error } = await supabase!
+    .from('pdfcon_document_data')
+    .update({
+      data: updates.data,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  return {
+    id: data.id,
+    conversionId: data.conversion_id,
+    data: data.data as ParsedDocument,
+    createdAt: new Date(data.created_at),
+    updatedAt: new Date(data.updated_at),
+  };
 }
+
+// Export types
+export type { Conversion as ConversionType };

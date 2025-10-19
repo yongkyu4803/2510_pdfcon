@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { FileText, ArrowLeft, ExternalLink, Clock, FileJson } from 'lucide-react';
+import { FileText, ArrowLeft, ExternalLink, Clock, FileJson, Database } from 'lucide-react';
 import type { Conversion } from '@/lib/db';
 
 export default function HistoryPage() {
@@ -77,12 +77,20 @@ export default function HistoryPage() {
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <header className="mb-8">
-          <Link href="/">
-            <Button variant="ghost" className="mb-4">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              돌아가기
-            </Button>
-          </Link>
+          <div className="flex items-center justify-between mb-4">
+            <Link href="/">
+              <Button variant="ghost">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                돌아가기
+              </Button>
+            </Link>
+            <Link href="/stats">
+              <Button variant="outline">
+                <Database className="h-4 w-4 mr-2" />
+                통계 보기
+              </Button>
+            </Link>
+          </div>
           <div className="flex items-center gap-3">
             <Clock className="h-8 w-8 text-blue-600" />
             <h1 className="text-3xl font-bold text-gray-900">변환 히스토리</h1>

@@ -5,7 +5,7 @@ import { FileUploader } from '@/components/file-uploader';
 import { ConversionProgress } from '@/components/conversion-progress';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import { FileText, History, Sparkles } from 'lucide-react';
+import { FileText, History, Sparkles, Database } from 'lucide-react';
 import Link from 'next/link';
 
 export default function Home() {
@@ -101,6 +101,12 @@ export default function Home() {
               <Button variant="outline" className="bg-gradient-to-r from-purple-50 to-blue-50 hover:from-purple-100 hover:to-blue-100 border-purple-200">
                 <Sparkles className="h-4 w-4 mr-2 text-purple-600" />
                 Gemini AI
+              </Button>
+            </Link>
+            <Link href="/stats">
+              <Button variant="outline">
+                <Database className="h-4 w-4 mr-2" />
+                통계
               </Button>
             </Link>
             <Link href="/history">
