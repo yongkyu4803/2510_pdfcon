@@ -26,7 +26,7 @@ export const ParagraphSchema = z.object({
  */
 export const ContentArticleSchema = z.object({
   title: z.string().min(1, '기사 제목은 필수입니다'),
-  paragraphs: z.array(ParagraphSchema).min(1, '최소 하나의 단락이 필요합니다'),
+  paragraphs: z.array(ParagraphSchema), // 빈 배열 허용
 });
 
 /**
@@ -34,7 +34,7 @@ export const ContentArticleSchema = z.object({
  */
 export const ContentSectionSchema = z.object({
   category: z.string().min(1, '카테고리명은 필수입니다'),
-  articles: z.array(ContentArticleSchema).min(1, '최소 하나의 기사가 필요합니다'),
+  articles: z.array(ContentArticleSchema), // 빈 배열 허용
 });
 
 /**
@@ -50,7 +50,7 @@ export const SummaryArticleSchema = z.object({
  */
 export const SummaryCategorySchema = z.object({
   category: z.string().min(1, '카테고리명은 필수입니다 (□ 기호 포함)'),
-  articles: z.array(SummaryArticleSchema).min(1, '최소 하나의 기사가 필요합니다'),
+  articles: z.array(SummaryArticleSchema), // 빈 배열 허용
 });
 
 /**
@@ -80,8 +80,8 @@ export const DocumentMetadataSchema = z.object({
  */
 export const ParsedDocumentSchema = z.object({
   header: DocumentHeaderSchema,
-  summary: z.array(SummaryCategorySchema).min(1, '최소 하나의 요지 카테고리가 필요합니다'),
-  content: z.array(ContentSectionSchema).min(1, '최소 하나의 본문 섹션이 필요합니다'),
+  summary: z.array(SummaryCategorySchema), // 빈 배열 허용
+  content: z.array(ContentSectionSchema), // 빈 배열 허용
   metadata: DocumentMetadataSchema,
 });
 
